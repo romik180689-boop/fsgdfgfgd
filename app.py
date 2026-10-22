@@ -26,6 +26,6 @@ def on_move(data):
     emit('move', data, room=room, include_self=False)
 
 if __name__ == '__main__':
-    import eventlet
-    eventlet.monkey_patch()
+    from gevent import monkey
+    monkey.patch_all()
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)
