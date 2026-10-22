@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grandmaster Chess</title>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#302e2b; color:#e0e0e0; font-family:'Segoe UI', sans-serif; min-height:100vh; display:flex; justify-content:center; align-items:center; padding:20px; }
+  .screen { display:none; width:100%; max-width:900px; }
+  .screen.active { display:flex; flex-direction:column; align-items:center; }
+  .hero h1 { font-size:48px; font-weight:800; color:#81b64c; text-align:center; margin-bottom:8px; }
+  .hero p { color:#aaa; text-align:center; margin-bottom:40px; }
+  .menu { display:flex; flex-direction:column; gap:16px; width:100%; max-width:400px; }
+  .menu button { padding:20px; background:#262522; border:1px solid #3d3d3d; border-radius:12px; color:#fff; font-size:18px; font-weight:600; cursor:pointer; transition:0.2s; display:flex; justify-content:space-between; }
+  .menu button:hover { background:#333; }
+  .settings { background:#262522; padding:32px; border-radius:16px; width:100%; max-width:480px; }
+  .settings h2 { text-align:center; margin-bottom:24px; }
+  .label { font-size:12px; color:#888; text-transform:uppercase; margin-bottom:8px; font-weight:600; }
+  .group { display:flex; gap:8px; margin-bottom:20px; }
+  .group button { flex:1; padding:12px; background:#1a1a1a; border:1px solid #3d3d3d; border-radius:8px; color:#888; cursor:pointer; font-weight:600; }
+  .group button.active { background:#81b64c; color:#fff; border-color:#81b64c; }
+  .start-btn { width:100%; padding:18px; background:#81b64c; border:none; border-radius:10px; color:#fff; font-size:18px; font-weight:800; cursor:pointer; }
+  .game { display:flex; gap:30px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  #board-wrap { width:min(90vw, 560px); aspect-ratio:1; border-radius:8px; overflow:hidden; box-shadow:0 8px 30px rgba(0,0,0,0.6); }
+  canvas { display:block; width:100%; height:100%; cursor:pointer; }
+  .sidebar { background:#262522; padding:24px; border-radius:12px; width:280px; }
+  .status { background:#1a1a1a; padding:16px; border-left:4px solid #81b64c; border-radius:6px; margin-bottom:20px; font-weight:600; }
+  .engine { font-size:12px; color:#888; margin-top:12px; text-align:center; }
+  .engine.ok { color:#81b64c; }
+  .back { width:100%; padding:12px; background:transparent; border:1px solid #3d3d3d; color:#fff; border-radius:8px; cursor:pointer; margin-top:8px; }
+  input[type="text"] { width:100%; padding:12px; background:#1a1a1a; border:1px solid #3d3d3d; color:#fff; border-radius:8px; margin-bottom:15px; font-size:16px; text-align:center; }
+  .link-box { background:#1a1a1a; padding:12px; border-radius:8px; margin-top:15px; word-break:break-all; font-size:12px; color:#81b64c; text-align:center; cursor:pointer; border:1px dashed #81b64c; }
+</style>
+</head>
+<body>
+
+<div id="s-main" class="screen active">
+  <div class="hero">
+    <h1>GRANDMASTER</h1>
+    <p>Шахматы с настоящим движком</p>
+    <div class="menu">
+      <button onclick="show('s-settings-bot')">🤖 Играть с ботом <span>→</span></button>
+      <button onclick="startFriendGame()">👥 Играть локально <span>→</span></button>
+      <button onclick="show('s-online')">🌐 Играть по сети <span>→</span></button>
+    </div>
+  </div>
+</div>
+
+<div id="s-settings-bot" class="screen">
+  <div class="settings">
+    <h2>Настройки бота</h2>
+    <div class="label">Твой цвет</div>
+    <div class="group">
+      <button class="color-opt active" onclick="setColor('w', this)">Белые</button>
+      <button class="color-opt" onclick="setColor('b', this)">Чёрные</button>
+    </div>
+    <div class="label">Сложность</div>
+    <div class="group">
+      <button class="diff-opt active" onclick="setDiff(1, this)">Легко</button>
+      <button class="diff-opt" onclick="setDiff(2, this)">Средне</button>
+      <button class="diff-opt" onclick="setDiff(3, this)">Хард</button>
+    </div>
+    <button class="start-btn" onclick="startGame()">Начать игру</button>
+    <button class="back" onclick="show('s-main')">Назад</button>
+  </div>
+</div>
+
+<div id="s-online" class="screen">
+  <div class="settings">
+    <h2>Игра по сети</h2>
+    <p style="text-align:center; font-size:14px; color:#aaa; margin-bottom:20px;">Создай комнату, скинь ссылку другу, или зайди по его ссылке.</p>
+    <button class="start-btn" onclick="createRoom()" style="margin-bottom:15px;">Создать комнату</button>
+    
+    <div id="roomLinkBox" style="display:none;">
+      <div class="label">Ссылка для друга (нажми, чтобы скопировать):</div>
+      <div class="link-box" id="roomLink" onclick="copyLink()">...</div>
+    </div>
+
+    <div style="margin-top:20px;">
+      <div class="label">Или введи код комнаты вручную:</div>
+      <input type="text" id="roomCode" placeholder="Код комнаты">
+      <button class="back" onclick="joinOnlineGame()">Войти</button>
+    </div>
+    <button class="back" onclick="show('s-main')">Назад</button>
+  </div>
+</div>
+
+<div id="s-game" class="screen">
+  <div class="game">
+    <div id="board-wrap"><canvas id="board"></canvas></div>
+    <div class="sidebar">
+      <div class="status" id="status">Загрузка…</div>
+      <button class="back" onclick="resetGame()">Новая игра</button>
+      <button class="back" onclick="show('s-main')">В меню</button>
+      <div class="engine" id="engine">Движок: загрузка…</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<script>
+const SIZE = 560, SQ = 560/8;
+const canvas = document.getElementById('board'), ctx = canvas.getContext('2d');
+const $status = document.getElementById('status'), $engine = document.getElementById('engine');
+
+// --- ЗАГРУЗКА НАСТОЯЩИХ ФИГУР С LICHESS ---
+const PIECES = {
+  'wP': 'https://lichess1.org/assets/piece/cburnett/wP.svg',
+  'wN': 'https://lichess1.org/assets/piece/cburnett/wN.svg',
+  'wB': 'https://lichess1.org/assets/piece/cburnett/wB.svg',
+  'wR': 'https://lichess1.org/assets/piece/cburnett/wR.svg',
+  'wQ': 'https://lichess1.org/assets/piece/cburnett/wQ.svg',
+  'wK': 'https://lichess1.org/assets/piece/cburnett/wK.svg',
+  'bP': 'https://lichess1.org/assets/piece/cburnett/bP.svg',
+  'bN': 'https://lichess1.org/assets/piece/cburnett/bN.svg',
+  'bB': 'https://lichess1.org/assets/piece/cburnett/bB.svg',
+  'bR': 'https://lichess1.org/assets/piece/cburnett/bR.svg',
+  'bQ': 'https://lichess1.org/assets/piece/cburnett/bQ.svg',
+  'bK': 'https://lichess1.org/assets/piece/cburnett/bK.svg'
+};
+
+const imgCache = {};
+let loadedCount = 0;
+for (const [k, url] of Object.entries(PIECES)) {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => { loadedCount++; if (loadedCount === 12) draw(); };
+  img.onerror = () => { console.error('Не загрузилась фигура:', k); loadedCount++; };
+  img.src = url;
+  imgCache[k] = img;
+}
+
+let game = new Chess();
+let playerColor = 'w', difficulty = 1, selected = null, legalMoves = [], thinking = false, flipped = false;
+let sf = null, sfReady = false;
+let isFriendMode = false, isOnlineMode = false;
+let roomName = '', socket = null;
+let lastMove = null;
+
+function setEngine(text, ok) {
+  $engine.textContent = 'Движок: ' + text;
+  $engine.className = 'engine' + (ok ? ' ok' : '');
+}
+
+function initSF() {
+  setEngine('загрузка…', false);
+  try { sf = new Worker('/static/stockfish-19-lite-single.js'); }
+  catch(e) { setEngine('ошибка (fallback)', false); return; }
+  sf.onmessage = (e) => {
+    const line = typeof e.data === 'string' ? e.data : '';
+    if (line === 'uciok') sf.postMessage('isready');
+    else if (line === 'readyok') { sfReady = true; setEngine('готов', true); }
+    else if (line.startsWith('bestmove')) {
+      const best = line.split(/\s+/)[1];
+      setTimeout(() => {
+        if (best && best !== '(none)') applyMove(best); else fallbackRandom();
+      }, 1000); 
+    }
+  };
+  sf.onerror = () => { setEngine('ошибка (fallback)', false); sfReady = false; };
+  sf.postMessage('uci'); sf.postMessage('ucinewgame'); sf.postMessage('isready');
+}
+
+function fallbackRandom() {
+  const moves = game.moves({ verbose: true });
+  if (!moves.length) { thinking = false; return; }
+  const m = moves[Math.floor(Math.random() * moves.length)];
+  game.move(m); lastMove = m; thinking = false; selected = null; legalMoves = [];
+  draw(); updateStatus();
+}
+
+function applyMove(uci) {
+  const m = game.move({ from: uci.slice(0,2), to: uci.slice(2,4), promotion: uci[4] || 'q' });
+  lastMove = m; thinking = false; selected = null; legalMoves = [];
+  draw(); updateStatus();
+}
+
+function botMove() {
+  if (game.game_over() || thinking || game.turn() === playerColor) return;
+  thinking = true; $status.textContent = '🤖 Бот думает…';
+  if (!sf || !sfReady) { setTimeout(fallbackRandom, 400); return; }
+  const depth = difficulty === 1 ? 2 : difficulty === 2 ? 6 : 12;
+  const skill = difficulty === 1 ? 2 : difficulty === 2 ? 10 : 20;
+  sf.postMessage('setoption name Skill Level value ' + skill);
+  sf.postMessage('position fen ' + game.fen());
+  sf.postMessage('go depth ' + depth);
+}
+
+function draw() {
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+    ctx.fillStyle = (r + c) % 2 === 0 ? '#ebecd0' : '#739552';
+    ctx.fillRect(c * SQ, r * SQ, SQ, SQ);
+  }
+
+  if (lastMove) {
+    const fromRC = sqToRC(lastMove.from);
+    const toRC = sqToRC(lastMove.to);
+    ctx.fillStyle = 'rgba(255, 235, 59, 0.45)';
+    ctx.fillRect(fromRC.col * SQ, fromRC.row * SQ, SQ, SQ);
+    ctx.fillRect(toRC.col * SQ, toRC.row * SQ, SQ, SQ);
+  }
+
+  if (selected) {
+    const {col, row} = sqToRC(selected);
+    ctx.fillStyle = 'rgba(255,235,59,0.5)'; ctx.fillRect(col * SQ, row * SQ, SQ, SQ);
+  }
+  for (const m of legalMoves) {
+    const {col, row} = sqToRC(m.to);
+    ctx.beginPath(); ctx.arc(col * SQ + SQ/2, row * SQ + SQ/2, m.flags.includes('c') ? SQ*0.4 : SQ*0.15, 0, Math.PI*2);
+    if (m.flags.includes('c')) { ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 5; ctx.stroke(); }
+    else { ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fill(); }
+  }
+  game.board().forEach((rowArr, r) => {
+    rowArr.forEach((p, c) => {
+      if (!p) return;
+      let col = c, row = r;
+      if (flipped) { col = 7-col; row = 7-row; }
+      const key = p.color + p.type.toUpperCase();
+      const img = imgCache[key];
+      if (img && img.complete && img.naturalWidth > 0) {
+        ctx.save(); 
+        ctx.shadowColor = 'rgba(0,0,0,0.4)'; ctx.shadowBlur = 4; ctx.shadowOffsetY = 3;
+        ctx.drawImage(img, col*SQ + 4, row*SQ + 4, SQ-8, SQ-8); 
+        ctx.restore();
+      }
+    });
+  });
+}
+
+function sqToRC(sq) {
+  let col = sq.charCodeAt(0) - 97, row = 8 - parseInt(sq[1]);
+  if (flipped) { col = 7-col; row = 7-row; }
+  return {col, row};
+}
+function rcToSq(col, row) {
+  if (flipped) { col = 7-col; row = 7-row; }
+  return String.fromCharCode(97+col) + (8-row);
+}
+
+canvas.addEventListener('click', (e) => {
+  if (game.game_over() || thinking) return;
+  if (isOnlineMode && game.turn() !== playerColor) return;
+  if (!isFriendMode && !isOnlineMode && game.turn() !== playerColor) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const scale = SIZE / rect.width;
+  const col = Math.floor((e.clientX - rect.left) * scale / SQ);
+  const row = Math.floor((e.clientY - rect.top) * scale / SQ);
+  const sq = rcToSq(col, row);
+  
+  if (selected === sq) { selected = null; legalMoves = []; draw(); return; }
+  
+  if (selected) {
+    const m = game.move({ from: selected, to: sq, promotion: 'q' });
+    if (m) {
+      lastMove = m; selected = null; legalMoves = []; draw(); updateStatus();
+      if (isOnlineMode && socket) {
+        socket.emit('move', { room: roomName, from: m.from, to: m.to, promotion: m.promotion || 'q' });
+      }
+      if (!isFriendMode && !isOnlineMode && !game.game_over()) setTimeout(botMove, 100);
+      return;
+    }
+  }
+  
+  const piece = game.get(sq);
+  const canPick = isFriendMode ? (piece && piece.color === game.turn()) : (piece && piece.color === playerColor);
+  
+  if (canPick) {
+    selected = sq; legalMoves = game.moves({ square: sq, verbose: true }); draw();
+  } else { selected = null; legalMoves = []; draw(); }
+});
+
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+function setColor(c, btn) { playerColor = c; document.querySelectorAll('.color-opt').forEach(b => b.classList.remove('active')); btn.classList.add('active'); }
+function setDiff(d, btn) { difficulty = d; document.querySelectorAll('.diff-opt').forEach(b => b.classList.remove('active')); btn.classList.add('active'); }
+function updateStatus() {
+  let s = game.turn() === 'w' ? 'Ход белых' : 'Ход чёрных';
+  if (game.in_checkmate()) s = 'Мат!'; else if (game.in_draw()) s = 'Ничья'; else if (game.in_check()) s += ' (Шах!)';
+  $status.textContent = s;
+}
+
+function startGame() {
+  isFriendMode = false; isOnlineMode = false;
+  show('s-game'); game = new Chess();
+  selected = null; legalMoves = []; thinking = false; flipped = playerColor === 'b'; lastMove = null;
+  canvas.width = SIZE; canvas.height = SIZE;
+  draw(); updateStatus();
+  if (playerColor === 'b') setTimeout(botMove, 500);
+}
+
+function startFriendGame() {
+  isFriendMode = true; isOnlineMode = false;
+  playerColor = 'w';
+  show('s-game'); game = new Chess();
+  selected = null; legalMoves = []; thinking = false; flipped = false; lastMove = null;
+  canvas.width = SIZE; canvas.height = SIZE;
+  draw(); updateStatus();
+}
+
+function createRoom() {
+  const room = Math.random().toString(36).substring(2, 8);
+  const link = window.location.origin + '/?room=' + room;
+  document.getElementById('roomLink').innerText = link;
+  document.getElementById('roomLinkBox').style.display = 'block';
+  window.history.pushState({}, '', '?room=' + room);
+  connectToRoom(room, 'w');
+}
+
+function joinOnlineGame() {
+  const room = document.getElementById('roomCode').value.trim();
+  if (!room) return alert('Введи код комнаты!');
+  connectToRoom(room, 'b');
+}
+
+function connectToRoom(room, color) {
+  isOnlineMode = true; isFriendMode = false;
+  playerColor = color;
+  roomName = room;
+  
+  socket = io(); 
+  socket.on('connect', () => {
+    socket.emit('join', { room: roomName });
+  });
+
+  socket.on('move', (data) => {
+    const m = game.move({ from: data.from, to: data.to, promotion: data.promotion });
+    lastMove = m; selected = null; legalMoves = [];
+    draw(); updateStatus();
+  });
+
+  show('s-game'); game = new Chess();
+  selected = null; legalMoves = []; thinking = false; 
+  flipped = (playerColor === 'b'); 
+  lastMove = null;
+  canvas.width = SIZE; canvas.height = SIZE;
+  draw(); updateStatus();
+}
+
+function copyLink() {
+  const link = document.getElementById('roomLink').innerText;
+  navigator.clipboard.writeText(link);
+  alert('Ссылка скопирована! Скинь её другу.');
+}
+
+function resetGame() { 
+  if (isOnlineMode) {
+    game = new Chess(); lastMove = null; draw(); updateStatus();
+  } else if (isFriendMode) {
+    startFriendGame();
+  } else {
+    startGame();
+  }
+}
+
+window.onload = () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const room = urlParams.get('room');
+  if (room) {
+    connectToRoom(room, 'b');
+  }
+};
+
+initSF();
+</script>
+</body>
+</html>
